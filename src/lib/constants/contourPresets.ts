@@ -11,6 +11,9 @@ export const CONTOUR_INTERVALS = [
   { value: 40, label: '40m (~131\')' },
   { value: 50, label: '50m (~164\')' },
   { value: 100, label: '100m (~328\')' },
+  { value: 200, label: '200m (~656\')' },
+  { value: 250, label: '250m (~820\')' },
+  { value: 500, label: '500m (~1640\')' },
 ];
 
 export function recommendContourInterval(
@@ -22,7 +25,7 @@ export function recommendContourInterval(
   const targetLines = 120;
   const roughInterval = elevationRange / targetLines;
 
-  const standards = [0.5, 1, 2, 3, 5, 10, 15, 20, 25, 40, 50, 100];
+  const standards = [0.5, 1, 2, 3, 5, 10, 15, 20, 25, 40, 50, 100, 200, 250, 500];
   let best = standards[0];
   for (const s of standards) {
     if (s >= roughInterval) {
@@ -32,12 +35,15 @@ export function recommendContourInterval(
     best = s;
   }
 
-  // Adjust for area size
-  if (areaSqKm > 100 && best < 10) {
-    best = 10;
-  }
-  if (areaSqKm > 500 && best < 20) {
+  // Adjust for area size — larger areas need bigger intervals
+  if (areaSqKm > 100_000 && best < 100) {
+    best = 100;
+  } else if (areaSqKm > 10_000 && best < 50) {
+    best = 50;
+  } else if (areaSqKm > 500 && best < 20) {
     best = 20;
+  } else if (areaSqKm > 100 && best < 10) {
+    best = 10;
   }
 
   const estimatedLines = Math.floor(elevationRange / best) * 3;

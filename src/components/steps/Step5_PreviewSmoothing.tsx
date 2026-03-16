@@ -4,18 +4,12 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useAppStore } from '@/store';
 import { Badge } from '@/components/ui/Badge';
 import { Slider } from '@/components/ui/Slider';
-import { Button } from '@/components/ui/Button';
 import { ARCH_COLORS } from '@/lib/preview/colors';
-import { renderPreviewSvg, renderSampleSvg } from '@/lib/preview/renderer';
+import { renderPreviewSvg } from '@/lib/preview/renderer';
 
 export function Step5PreviewSmoothing() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
-  const [fitZoom, setFitZoom] = useState(1);
-
-  // The smoothing value that's currently rendered in the full preview
-  const [renderedSmoothing, setRenderedSmoothing] = useState<number | null>(null);
-  const [isRendering, setIsRendering] = useState(false);
 
   const sheetWidthInches = useAppStore((s) => s.sheetWidthInches);
   const sheetHeightInches = useAppStore((s) => s.sheetHeightInches);
@@ -32,9 +26,26 @@ export function Step5PreviewSmoothing() {
   const smoothing = useAppStore((s) => s.smoothing);
   const setSmoothing = useAppStore((s) => s.setSmoothing);
 
-  // Full preview — only re-renders when renderedSmoothing changes (via button click)
+  // Count points for display
+  const pointStats = useMemo(() => {
+    if (!contourLines) return null;
+    const lineCount = contourLines.features.length;
+    let totalPoints = 0;
+    let maxPoints = 0;
+    for (const f of contourLines.features) {
+      if (f.geometry.type === 'LineString') {
+        const len = f.geometry.coordinates.length;
+        totalPoints += len;
+        if (len > maxPoints) maxPoints = len;
+      }
+    }
+    return { lineCount, totalPoints, maxPoints };
+  }, [contourLines]);
+
+  // Preview renders directly with current smoothing — no button needed
+  // since smoothing is now pure simplification (fast, no point addition)
   const svgContent = useMemo(() => {
-    if (!bbox || renderedSmoothing === null) return null;
+    if (!bbox) return null;
     return renderPreviewSvg({
       bbox,
       sheetWidthInches,
@@ -47,40 +58,9 @@ export function Step5PreviewSmoothing() {
       osmWater,
       osmLanduse,
       osmInfra,
-      smoothing: renderedSmoothing,
-    });
-  }, [bbox, sheetWidthInches, sheetHeightInches, scale, enabledLayers, contourLines, osmBuildings, osmRoads, osmWater, osmLanduse, osmInfra, renderedSmoothing]);
-
-  // Sample preview — updates LIVE with slider, renders only ~20 contour lines in a small box
-  const sampleSvg = useMemo(() => {
-    if (!bbox || !contourLines) return '';
-    return renderSampleSvg({
-      bbox,
-      contourLines,
       smoothing,
-      scale,
     });
-  }, [bbox, contourLines, smoothing, scale]);
-
-  const needsRender = renderedSmoothing === null || renderedSmoothing !== smoothing;
-
-  const handleRenderPreview = useCallback(() => {
-    setIsRendering(true);
-    // Use setTimeout so the UI can show "Rendering..." before the heavy computation
-    setTimeout(() => {
-      setRenderedSmoothing(smoothing);
-      setIsRendering(false);
-    }, 50);
-  }, [smoothing]);
-
-  // Auto-render on first mount
-  const hasAutoRendered = useRef(false);
-  if (!hasAutoRendered.current && bbox && renderedSmoothing === null) {
-    hasAutoRendered.current = true;
-    setTimeout(() => setRenderedSmoothing(smoothing), 100);
-  }
-
-  const aspectRatio = sheetWidthInches / sheetHeightInches;
+  }, [bbox, sheetWidthInches, sheetHeightInches, scale, enabledLayers, contourLines, osmBuildings, osmRoads, osmWater, osmLanduse, osmInfra, smoothing]);
 
   // The SVG base size in pixels (10px per inch)
   const baseSvgWidth = sheetWidthInches * 10;
@@ -89,7 +69,7 @@ export function Step5PreviewSmoothing() {
   // Calculate fit zoom to fill the container (with padding)
   const calcFitZoom = useCallback(() => {
     if (!containerRef.current) return 1;
-    const containerW = containerRef.current.clientWidth - 64; // 32px padding each side
+    const containerW = containerRef.current.clientWidth - 64;
     const containerH = containerRef.current.clientHeight - 64;
     if (containerW <= 0 || containerH <= 0) return 1;
 
@@ -101,21 +81,18 @@ export function Step5PreviewSmoothing() {
   // Auto-fit on mount and resize
   useEffect(() => {
     const fit = calcFitZoom();
-    setFitZoom(fit);
     setZoom(fit);
 
     const handleResize = () => {
       const newFit = calcFitZoom();
-      setFitZoom(newFit);
+      setZoom(newFit);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [calcFitZoom]);
 
   const handleFit = useCallback(() => {
-    const fit = calcFitZoom();
-    setFitZoom(fit);
-    setZoom(fit);
+    setZoom(calcFitZoom());
   }, [calcFitZoom]);
 
   return (
@@ -126,6 +103,9 @@ export function Step5PreviewSmoothing() {
           <span className="text-xs text-geo-text-muted">Preview</span>
           <Badge variant="neutral">{sheetWidthInches}&quot; × {sheetHeightInches}&quot;</Badge>
           <Badge variant="neutral">{scaleLabel}</Badge>
+          {pointStats && (
+            <Badge variant="neutral">{pointStats.lineCount} lines</Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setZoom((z) => Math.max(0.25, z * 0.8))} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover">
@@ -158,30 +138,25 @@ export function Step5PreviewSmoothing() {
             />
           ) : (
             <div className="text-center">
-              <p className="text-sm text-geo-text-muted mb-2">
-                {isRendering ? 'Rendering preview...' : 'No preview yet'}
-              </p>
+              <p className="text-sm text-geo-text-muted mb-2">No preview available</p>
               <p className="text-xs text-geo-text-muted">
-                {isRendering
-                  ? 'Smoothing and projecting all contour lines...'
-                  : 'Adjust smoothing below, then click "Render Preview" to see the full sheet.'
-                }
+                Go back to earlier steps and fetch data to see a preview.
               </p>
             </div>
           )}
         </div>
 
         {/* Smoothing sidebar */}
-        <div className="w-72 bg-geo-surface border-l border-geo-border p-4 space-y-4 overflow-y-auto shrink-0">
+        <div className="w-64 bg-geo-surface border-l border-geo-border p-4 space-y-5 overflow-y-auto shrink-0">
           <div>
-            <h3 className="text-sm font-semibold mb-1">Contour Smoothing</h3>
+            <h3 className="text-sm font-semibold mb-1">Contour Simplification</h3>
             <p className="text-[10px] text-geo-text-muted">
-              Drag the slider to adjust. The sample below updates live. Click &quot;Render Preview&quot; to apply to the full sheet.
+              Higher values remove more points for lighter files. Preview updates live.
             </p>
           </div>
 
           <Slider
-            label="Smoothing"
+            label="Simplification"
             value={smoothing * 100}
             onChange={(v) => setSmoothing(v / 100)}
             min={0}
@@ -189,47 +164,35 @@ export function Step5PreviewSmoothing() {
             step={5}
             valueLabel={`${Math.round(smoothing * 100)}%`}
           />
-          <div className="flex justify-between text-[10px] text-geo-text-muted -mt-2">
+          <div className="flex justify-between text-[10px] text-geo-text-muted -mt-3">
             <span>Raw</span>
-            <span>Smooth</span>
+            <span>Simplified</span>
           </div>
 
-          {/* Live sample preview */}
-          <div>
-            <h3 className="text-xs font-medium mb-2 text-geo-text-muted uppercase tracking-wider">
-              Live Sample
-            </h3>
-            <div
-              className="w-full aspect-square rounded-lg overflow-hidden border border-geo-border"
-              dangerouslySetInnerHTML={{ __html: sampleSvg }}
-            />
-            <p className="text-[10px] text-geo-text-muted mt-1 text-center">
-              ~20 contour lines at current smoothing
-            </p>
-          </div>
-
-          {/* Render button */}
-          <Button
-            variant="primary"
-            onClick={handleRenderPreview}
-            disabled={isRendering || !needsRender}
-          >
-            {isRendering
-              ? 'Rendering...'
-              : needsRender
-                ? 'Render Preview'
-                : 'Preview Up to Date'
-            }
-          </Button>
-          {needsRender && renderedSmoothing !== null && (
-            <p className="text-[10px] text-geo-accent text-center -mt-2">
-              Preview shows {Math.round(renderedSmoothing * 100)}% — slider is at {Math.round(smoothing * 100)}%
-            </p>
+          {/* Point stats */}
+          {pointStats && (
+            <div className="bg-geo-bg rounded-lg p-3 space-y-1.5">
+              <h4 className="text-[10px] font-medium text-geo-text-muted uppercase tracking-wider">Contour Stats</h4>
+              <div className="text-xs">
+                <div className="flex justify-between">
+                  <span className="text-geo-text-muted">Lines</span>
+                  <span className="font-mono">{pointStats.lineCount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-geo-text-muted">Total points</span>
+                  <span className="font-mono">{pointStats.totalPoints.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-geo-text-muted">Max pts/line</span>
+                  <span className="font-mono">{pointStats.maxPoints.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Layer legend */}
           <div>
-            <h3 className="text-xs font-medium mb-2 text-geo-text-muted uppercase tracking-wider">Layers</h3>
+            <h3 className="text-[10px] font-medium mb-2 text-geo-text-muted uppercase tracking-wider">Layers</h3>
             <div className="space-y-1.5">
               {enabledLayers.contours && (
                 <>

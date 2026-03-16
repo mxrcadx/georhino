@@ -1,148 +1,139 @@
 /**
- * Contour smoothing pipeline — 0% (raw) to 100% (fully smooth)
+ * Contour simplification pipeline — 0% (raw) to 100% (maximally simplified)
  *
- * Pre-processing:
- *   Point decimation strips redundant collinear stair-step points from
- *   DEM grid-aligned contours, reducing point count before smoothing.
+ * PHILOSOPHY: Smoothing = REMOVING points, never adding them.
+ * Higher smoothing → fewer points → lighter files → smoother appearance.
  *
- * 0–60% (factor 0–0.6):
- *   Catmull-Rom spline interpolation — inserts curved points between
- *   original vertices (1–20 interpolation points). Passes through all
- *   original points, so shape is preserved but lines become curved.
+ * HARD LIMITS:
+ *   - Max 500 points per contour line
+ *   - Total output never exceeds 1000 features
  *
- * 60–100% (factor 0.6–1.0):
- *   Catmull-Rom at max + Chaikin corner-cutting (1–5 iterations).
- *   Produces fully smooth, flowing curves like professional topo maps.
+ * Pipeline:
+ *   1. Compute line extent (for scale-independent tolerance)
+ *   2. Douglas-Peucker simplification (tolerance scales with smoothing factor)
+ *   3. Hard cap to max points (evenly sampled)
  */
 
-// ─── Catmull-Rom spline ───────────────────────────────────────────
+const MAX_POINTS_PER_LINE = 500;
 
-function catmullRom(
-  p0: [number, number],
-  p1: [number, number],
-  p2: [number, number],
-  p3: [number, number],
-  t: number
-): [number, number] {
-  const t2 = t * t;
-  const t3 = t2 * t;
+// ─── Douglas-Peucker simplification ────────────────────────────
 
-  const x = 0.5 * (
-    (2 * p1[0]) +
-    (-p0[0] + p2[0]) * t +
-    (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
-    (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
-  );
+/**
+ * Perpendicular distance from point to line segment.
+ */
+function pointToSegmentDist(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
 
-  const y = 0.5 * (
-    (2 * p1[1]) +
-    (-p0[1] + p2[1]) * t +
-    (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
-    (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
-  );
+  if (lenSq === 0) {
+    // Segment is a point
+    const ex = px - ax;
+    const ey = py - ay;
+    return Math.sqrt(ex * ex + ey * ey);
+  }
 
-  return [x, y];
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const projX = ax + t * dx;
+  const projY = ay + t * dy;
+  const ex = px - projX;
+  const ey = py - projY;
+  return Math.sqrt(ex * ex + ey * ey);
 }
 
-function catmullRomSmooth(
+/**
+ * True Douglas-Peucker recursive simplification.
+ * Returns indices of points to keep.
+ */
+function douglasPeucker(
   points: [number, number][],
-  numInserted: number
-): [number, number][] {
-  if (points.length < 3 || numInserted < 1) return points;
+  tolerance: number,
+  startIdx: number,
+  endIdx: number,
+  keep: boolean[]
+): void {
+  if (endIdx - startIdx < 2) return;
 
-  const result: [number, number][] = [];
+  let maxDist = 0;
+  let maxIdx = startIdx;
 
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
+  const ax = points[startIdx][0];
+  const ay = points[startIdx][1];
+  const bx = points[endIdx][0];
+  const by = points[endIdx][1];
 
-    for (let j = 0; j < numInserted; j++) {
-      const t = j / numInserted;
-      result.push(catmullRom(p0, p1, p2, p3, t));
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const dist = pointToSegmentDist(points[i][0], points[i][1], ax, ay, bx, by);
+    if (dist > maxDist) {
+      maxDist = dist;
+      maxIdx = i;
     }
   }
 
-  result.push(points[points.length - 1]);
-  return result;
-}
-
-// ─── Chaikin corner-cutting ───────────────────────────────────────
-
-function chaikinSmooth(
-  points: [number, number][],
-  iterations: number
-): [number, number][] {
-  if (points.length < 3 || iterations < 1) return points;
-
-  let result = points;
-
-  for (let iter = 0; iter < iterations; iter++) {
-    const newPoints: [number, number][] = [];
-
-    // Keep the first point anchored
-    newPoints.push(result[0]);
-
-    for (let i = 0; i < result.length - 1; i++) {
-      const p0 = result[i];
-      const p1 = result[i + 1];
-
-      // Q point: 3/4 of p0, 1/4 of p1
-      newPoints.push([
-        0.75 * p0[0] + 0.25 * p1[0],
-        0.75 * p0[1] + 0.25 * p1[1],
-      ]);
-
-      // R point: 1/4 of p0, 3/4 of p1
-      newPoints.push([
-        0.25 * p0[0] + 0.75 * p1[0],
-        0.25 * p0[1] + 0.75 * p1[1],
-      ]);
-    }
-
-    // Keep the last point anchored
-    newPoints.push(result[result.length - 1]);
-
-    result = newPoints;
+  if (maxDist > tolerance) {
+    keep[maxIdx] = true;
+    douglasPeucker(points, tolerance, startIdx, maxIdx, keep);
+    douglasPeucker(points, tolerance, maxIdx, endIdx, keep);
   }
-
-  return result;
 }
 
-// ─── Point decimation (Douglas-Peucker-like) ─────────────────────
-// Removes redundant collinear points from grid-aligned staircase
-// patterns before smoothing, so the smoother has cleaner input.
-
-function decimatePoints(
+function simplifyLine(
   points: [number, number][],
   tolerance: number
 ): [number, number][] {
-  if (points.length <= 3) return points;
+  if (points.length <= 2) return points;
+
+  const keep = new Array<boolean>(points.length).fill(false);
+  keep[0] = true;
+  keep[points.length - 1] = true;
+
+  douglasPeucker(points, tolerance, 0, points.length - 1, keep);
+
+  const result: [number, number][] = [];
+  for (let i = 0; i < points.length; i++) {
+    if (keep[i]) result.push(points[i]);
+  }
+  return result;
+}
+
+/**
+ * Compute the diagonal extent of a line (in coordinate units).
+ * Used to make tolerance scale-independent.
+ */
+function lineExtent(points: [number, number][]): number {
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const dx = maxX - minX;
+  const dy = maxY - minY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ─── Cap points by even sampling ────────────────────────────────
+
+function capPoints(
+  points: [number, number][],
+  maxPoints: number
+): [number, number][] {
+  if (points.length <= maxPoints) return points;
 
   const result: [number, number][] = [points[0]];
+  const step = (points.length - 1) / (maxPoints - 1);
 
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = result[result.length - 1];
-    const curr = points[i];
-    const next = points[i + 1];
-
-    // Check if current point is roughly collinear with prev and next
-    const dx1 = curr[0] - prev[0];
-    const dy1 = curr[1] - prev[1];
-    const dx2 = next[0] - prev[0];
-    const dy2 = next[1] - prev[1];
-
-    // Cross product gives area of parallelogram — if small, points are collinear
-    const cross = Math.abs(dx1 * dy2 - dy1 * dx2);
-    const len = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-
-    // Distance from point to line prev→next
-    const dist = len > 0 ? cross / len : 0;
-
-    if (dist > tolerance) {
-      result.push(curr);
-    }
+  for (let i = 1; i < maxPoints - 1; i++) {
+    const idx = Math.round(i * step);
+    result.push(points[idx]);
   }
 
   result.push(points[points.length - 1]);
@@ -151,28 +142,35 @@ function decimatePoints(
 
 // ─── Main smoothing function ─────────────────────────────────────
 
+/**
+ * Simplify a contour line. Higher factor = more aggressive simplification = fewer points.
+ *
+ * factor 0.0 → minimal simplification (just remove exact duplicates + tiny jitter)
+ * factor 0.5 → moderate simplification
+ * factor 1.0 → aggressive simplification (fewest points that preserve shape)
+ */
 export function smoothContourLine(
   points: [number, number][],
   factor: number
 ): [number, number][] {
-  if (factor <= 0 || points.length < 3) return points;
+  if (points.length <= 2) return points;
 
-  // Pre-process: strip stair-step grid artifacts from DEM data.
-  // Tolerance is in degrees — 0.00005° ≈ 5.5m, enough to remove DEM grid
-  // staircase corners without distorting real terrain features.
-  let result = decimatePoints(points, 0.00005);
+  // Always do a baseline simplification to remove DEM grid staircase artifacts
+  // even at factor=0. The raw grid-traced contours have redundant collinear points.
+  const extent = lineExtent(points);
+  if (extent === 0) return [points[0]]; // degenerate line
 
-  if (factor <= 0.6) {
-    // 0–60%: Catmull-Rom interpolation only (1–20 points per segment)
-    const numInserted = Math.max(1, Math.round((factor / 0.6) * 20));
-    result = catmullRomSmooth(result, numInserted);
-  } else {
-    // 60–100%: Full Catmull-Rom + Chaikin corner-cutting for max smoothness
-    result = catmullRomSmooth(result, 20);
-    // factor 0.6→1.0 maps to 1→5 Chaikin iterations
-    const chaikinIter = Math.max(1, Math.round(((factor - 0.6) / 0.4) * 5));
-    result = chaikinSmooth(result, chaikinIter);
-  }
+  // Tolerance as fraction of the line's extent:
+  //   factor=0 → 0.05% of extent (removes grid artifacts only)
+  //   factor=0.5 → 0.5% of extent (moderate simplification)
+  //   factor=1 → 2% of extent (aggressive simplification)
+  const toleranceFraction = 0.0005 + factor * factor * 0.02;
+  const tolerance = extent * toleranceFraction;
+
+  let result = simplifyLine(points, tolerance);
+
+  // Hard cap
+  result = capPoints(result, MAX_POINTS_PER_LINE);
 
   return result;
 }
@@ -183,8 +181,6 @@ export function smoothFeatureCollection(
   fc: import('geojson').FeatureCollection,
   factor: number
 ): import('geojson').FeatureCollection {
-  if (factor <= 0) return fc;
-
   return {
     type: 'FeatureCollection',
     features: fc.features.map((feature) => {
@@ -213,9 +209,7 @@ export async function smoothFeatureCollectionAsync(
   factor: number,
   onProgress?: (pct: number) => void
 ): Promise<import('geojson').FeatureCollection> {
-  if (factor <= 0) return fc;
-
-  const BATCH = 20; // yield every 20 features
+  const BATCH = 50;
   const features: import('geojson').Feature[] = [];
 
   for (let i = 0; i < fc.features.length; i++) {
