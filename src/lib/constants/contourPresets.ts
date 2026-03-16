@@ -1,10 +1,16 @@
 export const CONTOUR_INTERVALS = [
-  { value: 1, label: '1m' },
-  { value: 2, label: '2m' },
-  { value: 5, label: '5m' },
-  { value: 10, label: '10m' },
-  { value: 20, label: '20m' },
-  { value: 50, label: '50m' },
+  { value: 0.5, label: '0.5m (~1.6\')' },
+  { value: 1, label: '1m (~3.3\')' },
+  { value: 2, label: '2m (~6.6\')' },
+  { value: 3, label: '3m (~10\')' },
+  { value: 5, label: '5m (~16\')' },
+  { value: 10, label: '10m (~33\')' },
+  { value: 15, label: '15m (~49\')' },
+  { value: 20, label: '20m (~66\')' },
+  { value: 25, label: '25m (~82\')' },
+  { value: 40, label: '40m (~131\')' },
+  { value: 50, label: '50m (~164\')' },
+  { value: 100, label: '100m (~328\')' },
 ];
 
 export function recommendContourInterval(
@@ -16,7 +22,7 @@ export function recommendContourInterval(
   const targetLines = 120;
   const roughInterval = elevationRange / targetLines;
 
-  const standards = [1, 2, 5, 10, 20, 50, 100];
+  const standards = [0.5, 1, 2, 3, 5, 10, 15, 20, 25, 40, 50, 100];
   let best = standards[0];
   for (const s of standards) {
     if (s >= roughInterval) {

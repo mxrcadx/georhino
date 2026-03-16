@@ -7,11 +7,11 @@
  *
  * 0–60% (factor 0–0.6):
  *   Catmull-Rom spline interpolation — inserts curved points between
- *   original vertices (1–12 interpolation points). Passes through all
+ *   original vertices (1–20 interpolation points). Passes through all
  *   original points, so shape is preserved but lines become curved.
  *
  * 60–100% (factor 0.6–1.0):
- *   Catmull-Rom at max + Chaikin corner-cutting (1–3 iterations).
+ *   Catmull-Rom at max + Chaikin corner-cutting (1–5 iterations).
  *   Produces fully smooth, flowing curves like professional topo maps.
  */
 
@@ -158,19 +158,19 @@ export function smoothContourLine(
   if (factor <= 0 || points.length < 3) return points;
 
   // Pre-process: strip stair-step grid artifacts from DEM data.
-  // Removes collinear points from grid-aligned patterns so the smoother
-  // has cleaner, fewer points to process.
-  let result = decimatePoints(points, 0.000001);
+  // Tolerance is in degrees — 0.00005° ≈ 5.5m, enough to remove DEM grid
+  // staircase corners without distorting real terrain features.
+  let result = decimatePoints(points, 0.00005);
 
   if (factor <= 0.6) {
-    // 0–60%: Catmull-Rom interpolation only (1–12 points per segment)
-    const numInserted = Math.max(1, Math.round((factor / 0.6) * 12));
+    // 0–60%: Catmull-Rom interpolation only (1–20 points per segment)
+    const numInserted = Math.max(1, Math.round((factor / 0.6) * 20));
     result = catmullRomSmooth(result, numInserted);
   } else {
     // 60–100%: Full Catmull-Rom + Chaikin corner-cutting for max smoothness
-    result = catmullRomSmooth(result, 12);
-    // factor 0.6→1.0 maps to 1→3 Chaikin iterations
-    const chaikinIter = Math.max(1, Math.round(((factor - 0.6) / 0.4) * 3));
+    result = catmullRomSmooth(result, 20);
+    // factor 0.6→1.0 maps to 1→5 Chaikin iterations
+    const chaikinIter = Math.max(1, Math.round(((factor - 0.6) / 0.4) * 5));
     result = chaikinSmooth(result, chaikinIter);
   }
 

@@ -16,6 +16,7 @@ declare module '@mapbox/mapbox-gl-draw' {
   }
 
   class MapboxDraw implements IControl {
+    static modes: Record<string, any>;
     constructor(options?: DrawOptions);
     onAdd(map: Map): HTMLElement;
     onRemove(): void;

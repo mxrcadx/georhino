@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { LAYER_DEFINITIONS } from '@/lib/constants/layerDefinitions';
 import type { LayerName } from '@/types/layers';
 import { fetchOsmData } from '@/lib/data/osmFetcher';
-import { fetchElevationData } from '@/lib/data/elevationFetcher';
+import { fetchElevationData, getAreaWarning, getSelectedResolution } from '@/lib/data/elevationFetcher';
 
 export function Step3DataLayers() {
   const bbox = useAppStore((s) => s.bbox);
@@ -85,6 +85,27 @@ export function Step3DataLayers() {
           </Button>
         </div>
 
+        {bbox && (() => {
+          const warning = getAreaWarning(bbox);
+          if (!warning) return null;
+          const isTooLarge = warning.includes('exceeds') || warning.includes('maximum');
+          return (
+            <div className={`rounded-lg border p-4 ${isTooLarge ? 'bg-red-500/5 border-red-500/30' : 'bg-yellow-500/5 border-yellow-500/30'}`}>
+              <div className="flex items-start gap-3">
+                <span className="text-lg">{isTooLarge ? '⚠️' : '⏳'}</span>
+                <div>
+                  <h3 className={`text-sm font-medium ${isTooLarge ? 'text-red-400' : 'text-yellow-400'}`}>
+                    {isTooLarge ? 'Area Too Large' : 'Large Area Warning'}
+                  </h3>
+                  <p className={`text-xs mt-1 ${isTooLarge ? 'text-red-400/80' : 'text-yellow-400/80'}`}>
+                    {warning}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="space-y-3">
           {LAYER_DEFINITIONS.map((layer) => (
             <Card key={layer.name} className="flex items-center justify-between">
@@ -96,7 +117,12 @@ export function Step3DataLayers() {
                     {getStatusBadge(layer.name)}
                   </div>
                   <p className="text-xs text-geo-text-muted mt-0.5">{layer.description}</p>
-                  <p className="text-[10px] text-geo-text-muted/60 mt-0.5">Source: {layer.source}</p>
+                  <p className="text-[10px] text-geo-text-muted/60 mt-0.5">
+                    Source: {layer.source}
+                    {layer.name === 'contours' && bbox && (
+                      <span className="ml-1 text-geo-accent/70">({getSelectedResolution(bbox)})</span>
+                    )}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-3 ml-4">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useAppStore } from '@/store';
 import { Badge } from '@/components/ui/Badge';
 import { Slider } from '@/components/ui/Slider';
@@ -11,6 +11,7 @@ import { renderPreviewSvg, renderSampleSvg } from '@/lib/preview/renderer';
 export function Step5PreviewSmoothing() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [fitZoom, setFitZoom] = useState(1);
 
   // The smoothing value that's currently rendered in the full preview
   const [renderedSmoothing, setRenderedSmoothing] = useState<number | null>(null);
@@ -81,6 +82,42 @@ export function Step5PreviewSmoothing() {
 
   const aspectRatio = sheetWidthInches / sheetHeightInches;
 
+  // The SVG base size in pixels (10px per inch)
+  const baseSvgWidth = sheetWidthInches * 10;
+  const baseSvgHeight = sheetHeightInches * 10;
+
+  // Calculate fit zoom to fill the container (with padding)
+  const calcFitZoom = useCallback(() => {
+    if (!containerRef.current) return 1;
+    const containerW = containerRef.current.clientWidth - 64; // 32px padding each side
+    const containerH = containerRef.current.clientHeight - 64;
+    if (containerW <= 0 || containerH <= 0) return 1;
+
+    const scaleX = containerW / baseSvgWidth;
+    const scaleY = containerH / baseSvgHeight;
+    return Math.min(scaleX, scaleY);
+  }, [baseSvgWidth, baseSvgHeight]);
+
+  // Auto-fit on mount and resize
+  useEffect(() => {
+    const fit = calcFitZoom();
+    setFitZoom(fit);
+    setZoom(fit);
+
+    const handleResize = () => {
+      const newFit = calcFitZoom();
+      setFitZoom(newFit);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [calcFitZoom]);
+
+  const handleFit = useCallback(() => {
+    const fit = calcFitZoom();
+    setFitZoom(fit);
+    setZoom(fit);
+  }, [calcFitZoom]);
+
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
@@ -91,14 +128,14 @@ export function Step5PreviewSmoothing() {
           <Badge variant="neutral">{scaleLabel}</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover">
+          <button onClick={() => setZoom((z) => Math.max(0.25, z * 0.8))} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover">
             -
           </button>
           <span className="text-xs font-mono w-12 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom((z) => Math.min(4, z + 0.25))} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover">
+          <button onClick={() => setZoom((z) => Math.min(10, z * 1.25))} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover">
             +
           </button>
-          <button onClick={() => setZoom(1)} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover ml-1">
+          <button onClick={handleFit} className="px-2 py-1 text-xs bg-geo-border rounded hover:bg-geo-border-hover ml-1">
             Fit
           </button>
         </div>

@@ -162,10 +162,21 @@ export function renderPreviewSvg(options: RenderOptions): string {
     svg += renderFeatures(options.osmLanduse, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.landuse, 0.3, ARCH_COLORS.landuseFill, true);
   }
 
-  // Water — use proper SVG opacity instead of hex alpha
+  // Water — split polygons (filled, closed) from linestrings (stroke only, open)
   if (enabledLayers.water && options.osmWater) {
+    const waterPolygons: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: options.osmWater.features.filter((f) => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'),
+    };
+    const waterLines: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: options.osmWater.features.filter((f) => f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'),
+    };
     svg += `<g opacity="0.25">`;
-    svg += renderFeatures(options.osmWater, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.water, 0.5, ARCH_COLORS.waterFill, true);
+    // Polygons: closed + filled (lakes, ponds, reservoirs)
+    svg += renderFeatures(waterPolygons, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.water, 0.5, ARCH_COLORS.waterFill, true);
+    // LineStrings: open stroke only (rivers, streams, canals)
+    svg += renderFeatures(waterLines, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.water, 0.5);
     svg += `</g>`;
   }
 

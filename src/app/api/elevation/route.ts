@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const response = await fetch(url.toString(), {
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(240000), // 4 minute timeout for large 90m areas
     });
 
     if (!response.ok) {
