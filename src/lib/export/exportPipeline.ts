@@ -16,24 +16,50 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function generateDxf(state: AppStore, projector: ReturnType<typeof createProjector>): Blob {
+/** Yield to the browser so the page stays responsive during heavy work */
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function generateDxf(
+  state: AppStore,
+  projector: ReturnType<typeof createProjector>,
+  setProgress: (p: number) => void
+): Promise<Blob> {
   const writer = new DxfWriter();
 
-  // Project all data
+  // ── Stage 1: Smooth contours (heaviest CPU work) ──
+  setProgress(15);
   let contours = state.contourLines;
   if (contours && state.smoothing > 0) {
     contours = smoothFeatureCollection(contours, state.smoothing);
   }
+  await yieldToMain();
+
+  // ── Stage 2: Project each data layer (proj4 per coordinate) ──
+  setProgress(25);
   const projectedContours = projectFeatureCollection(contours, projector);
+  await yieldToMain();
+
+  setProgress(30);
   const projectedBuildings = projectFeatureCollection(state.osmBuildings, projector);
   const projectedRoads = projectFeatureCollection(state.osmRoads, projector);
+  await yieldToMain();
+
+  setProgress(35);
   const projectedWater = projectFeatureCollection(state.osmWater, projector);
   const projectedLanduse = projectFeatureCollection(state.osmLanduse, projector);
   const projectedInfra = projectFeatureCollection(state.osmInfra, projector);
+  await yieldToMain();
+
+  // ── Stage 3: Build DXF entities in batches ──
+  const BATCH_SIZE = 50; // yield every 50 features
 
   // Contour lines
   if (projectedContours && state.enabledLayers.contours) {
-    for (const feature of projectedContours.features) {
+    const features = projectedContours.features;
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i];
       if (feature.geometry.type !== 'LineString') continue;
       const coords = feature.geometry.coordinates;
       const isMajor = feature.properties?.isMajor;
@@ -54,8 +80,15 @@ function generateDxf(state: AppStore, projector: ReturnType<typeof createProject
           writer.addText('TOPO-CONTOUR-LABEL', [mid[0], mid[1], 0], `${elevFeet}'`, 2.0);
         }
       }
+
+      if (i % BATCH_SIZE === 0 && i > 0) {
+        setProgress(40 + Math.round((i / features.length) * 25));
+        await yieldToMain();
+      }
     }
   }
+  setProgress(65);
+  await yieldToMain();
 
   // Buildings
   if (projectedBuildings && state.enabledLayers.buildings) {
@@ -69,6 +102,8 @@ function generateDxf(state: AppStore, projector: ReturnType<typeof createProject
       }
     }
   }
+  setProgress(70);
+  await yieldToMain();
 
   // Roads
   if (projectedRoads && state.enabledLayers.roads) {
@@ -118,8 +153,15 @@ function generateDxf(state: AppStore, projector: ReturnType<typeof createProject
       }
     }
   }
+  setProgress(80);
+  await yieldToMain();
 
+  // ── Stage 4: Build final DXF string ──
+  setProgress(85);
   const dxfString = writer.build();
+  await yieldToMain();
+
+  setProgress(90);
   return new Blob([dxfString], { type: 'application/dxf' });
 }
 
@@ -182,9 +224,7 @@ export async function runExportPipeline(state: AppStore): Promise<void> {
 
     switch (exportFormat) {
       case 'dxf':
-        state.setExportProgress(40);
-        blob = generateDxf(state, projector);
-        state.setExportProgress(90);
+        blob = await generateDxf(state, projector, (p) => state.setExportProgress(p));
         downloadBlob(blob, `georhino-site-${timestamp}.dxf`);
         break;
 
