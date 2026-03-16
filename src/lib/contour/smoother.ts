@@ -164,31 +164,14 @@ export function smoothContourLine(
     const numInserted = Math.max(1, Math.round(factor * 12));
     result = catmullRomSmooth(result, numInserted);
   } else {
-    // Stage 2: Beyond 100% — multi-pass pipeline
-
-    // First, decimate grid-staircase artifacts
-    // Use a small tolerance based on average point spacing
-    if (result.length > 10) {
-      let totalDist = 0;
-      for (let i = 1; i < Math.min(result.length, 50); i++) {
-        const dx = result[i][0] - result[i - 1][0];
-        const dy = result[i][1] - result[i - 1][1];
-        totalDist += Math.sqrt(dx * dx + dy * dy);
-      }
-      const avgSpacing = totalDist / Math.min(result.length - 1, 49);
-      // Remove points within 30% of grid spacing (removes staircase steps)
-      result = decimatePoints(result, avgSpacing * 0.3);
-    }
-
-    // Then Catmull-Rom at full resolution
+    // Stage 2: Beyond 100% — Catmull-Rom at max, then Chaikin rounding
+    // First apply full Catmull-Rom (same as 100%) for smooth base
     result = catmullRomSmooth(result, 12);
 
-    // Then Chaikin corner-cutting for genuine smoothing
-    // factor 1.0→2.0 maps to 1→5 Chaikin iterations
-    const chaikinIter = Math.round((factor - 1.0) * 5);
-    if (chaikinIter > 0) {
-      result = chaikinSmooth(result, chaikinIter);
-    }
+    // Then Chaikin corner-cutting for extra rounding
+    // factor 1.0→2.0 maps to 1→3 Chaikin iterations (capped to prevent bloat)
+    const chaikinIter = Math.max(1, Math.round((factor - 1.0) * 3));
+    result = chaikinSmooth(result, chaikinIter);
   }
 
   return result;

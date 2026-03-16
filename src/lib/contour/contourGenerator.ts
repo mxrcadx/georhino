@@ -54,7 +54,7 @@ export function generateContours(
   for (const mp of contourMultiPolygons) {
     const elevation = mp.value;
     const thresholdIndex = thresholds.indexOf(elevation);
-    const isMajor = thresholdIndex >= 0 && thresholdIndex % majorEvery === 0;
+    const isMajor = majorEvery > 0 && thresholdIndex >= 0 && thresholdIndex % majorEvery === 0;
 
     // Extract rings from MultiPolygon coordinates
     for (const polygon of mp.coordinates) {

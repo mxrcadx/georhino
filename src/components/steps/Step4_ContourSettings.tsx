@@ -195,16 +195,31 @@ export function Step4ContourSettings() {
           <Select
             label="Major contour every"
             options={[
+              { value: '0', label: 'None' },
+              { value: '2', label: 'Every 2nd line' },
+              { value: '4', label: 'Every 4th line' },
               { value: '5', label: 'Every 5th line' },
               { value: '10', label: 'Every 10th line' },
-              { value: '4', label: 'Every 4th line' },
+              { value: '20', label: 'Every 20th line' },
+              { value: '25', label: 'Every 25th line' },
+              { value: '50', label: 'Every 50th line' },
+              { value: '100', label: 'Every 100th line' },
+              { value: '200', label: 'Every 200th line' },
+              { value: '500', label: 'Every 500th line' },
             ]}
             value={String(majorEvery)}
             onChange={(v) => setMajorEvery(Number(v))}
           />
-          <div className="mt-2 text-xs text-geo-text-muted font-mono">
-            Major interval: {contourInterval * majorEvery}m ({Math.round(contourInterval * majorEvery * 3.28084)}')
-          </div>
+          {majorEvery > 0 && (
+            <div className="mt-2 text-xs text-geo-text-muted font-mono">
+              Major interval: {contourInterval * majorEvery}m ({Math.round(contourInterval * majorEvery * 3.28084)}')
+            </div>
+          )}
+          {majorEvery === 0 && (
+            <div className="mt-2 text-xs text-geo-text-muted">
+              All contours will be placed on the minor contour layer.
+            </div>
+          )}
         </Card>
 
         {/* 3D vs 2D */}

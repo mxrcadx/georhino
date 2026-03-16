@@ -49,13 +49,17 @@ export function StepWizard() {
         <span className="text-xs text-geo-text-muted">
           Step {currentStep} of 6
         </span>
-        <Button
-          variant="primary"
-          onClick={() => setCurrentStep(currentStep + 1)}
-          disabled={!canGoNext()}
-        >
-          {currentStep === 5 ? 'Export' : 'Next'}
-        </Button>
+        {currentStep < 6 ? (
+          <Button
+            variant="primary"
+            onClick={() => setCurrentStep(currentStep + 1)}
+            disabled={!canGoNext()}
+          >
+            {currentStep === 5 ? 'Export' : 'Next'}
+          </Button>
+        ) : (
+          <div />
+        )}
       </div>
     </div>
   );
