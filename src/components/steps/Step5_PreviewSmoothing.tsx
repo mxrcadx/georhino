@@ -149,14 +149,14 @@ export function Step5PreviewSmoothing() {
         {/* Smoothing sidebar */}
         <div className="w-64 bg-geo-surface border-l border-geo-border p-4 space-y-5 overflow-y-auto shrink-0">
           <div>
-            <h3 className="text-sm font-semibold mb-1">Contour Simplification</h3>
+            <h3 className="text-sm font-semibold mb-1">Contour Smoothing</h3>
             <p className="text-[10px] text-geo-text-muted">
-              Higher values remove more points for lighter files. Preview updates live.
+              Smooths staircase artifacts into curves. Higher = smoother lines, fewer points, lighter files.
             </p>
           </div>
 
           <Slider
-            label="Simplification"
+            label="Smoothing"
             value={smoothing * 100}
             onChange={(v) => setSmoothing(v / 100)}
             min={0}
@@ -166,7 +166,7 @@ export function Step5PreviewSmoothing() {
           />
           <div className="flex justify-between text-[10px] text-geo-text-muted -mt-3">
             <span>Raw</span>
-            <span>Simplified</span>
+            <span>Smooth</span>
           </div>
 
           {/* Point stats */}

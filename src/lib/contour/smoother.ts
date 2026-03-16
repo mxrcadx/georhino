@@ -1,26 +1,30 @@
 /**
- * Contour simplification pipeline — 0% (raw) to 100% (maximally simplified)
+ * Contour smoothing + simplification pipeline
  *
- * PHILOSOPHY: Smoothing = REMOVING points, never adding them.
- * Higher smoothing → fewer points → lighter files → smoother appearance.
+ * Raw DEM contours are staircases — they follow grid cell boundaries with
+ * 90-degree turns and tons of redundant points. The goal is to produce
+ * smooth, flowing curves with FEWER points than the raw input.
+ *
+ * Pipeline:
+ *   1. Aggressive decimation to strip staircase artifacts → key shape points
+ *   2. Catmull-Rom spline through key points → smooth curves
+ *   3. Final decimation to remove redundant interpolated points
+ *   4. Hard cap at MAX_POINTS_PER_LINE
+ *
+ * At factor=0: light decimation only (still staircasey, most points kept)
+ * At factor=1: heavy decimation → few key points → smooth curves → fewest points
+ *
+ * The output ALWAYS has fewer points than the input.
  *
  * HARD LIMITS:
  *   - Max 500 points per contour line
  *   - Total output never exceeds 1000 features
- *
- * Pipeline:
- *   1. Compute line extent (for scale-independent tolerance)
- *   2. Douglas-Peucker simplification (tolerance scales with smoothing factor)
- *   3. Hard cap to max points (evenly sampled)
  */
 
 const MAX_POINTS_PER_LINE = 500;
 
 // ─── Douglas-Peucker simplification ────────────────────────────
 
-/**
- * Perpendicular distance from point to line segment.
- */
 function pointToSegmentDist(
   px: number, py: number,
   ax: number, ay: number,
@@ -31,7 +35,6 @@ function pointToSegmentDist(
   const lenSq = dx * dx + dy * dy;
 
   if (lenSq === 0) {
-    // Segment is a point
     const ex = px - ax;
     const ey = py - ay;
     return Math.sqrt(ex * ex + ey * ey);
@@ -47,10 +50,6 @@ function pointToSegmentDist(
   return Math.sqrt(ex * ex + ey * ey);
 }
 
-/**
- * True Douglas-Peucker recursive simplification.
- * Returns indices of points to keep.
- */
 function douglasPeucker(
   points: [number, number][],
   tolerance: number,
@@ -102,10 +101,8 @@ function simplifyLine(
   return result;
 }
 
-/**
- * Compute the diagonal extent of a line (in coordinate units).
- * Used to make tolerance scale-independent.
- */
+// ─── Line extent (for scale-independent tolerance) ──────────────
+
 function lineExtent(points: [number, number][]): number {
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
@@ -118,6 +115,68 @@ function lineExtent(points: [number, number][]): number {
   const dx = maxX - minX;
   const dy = maxY - minY;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ─── Catmull-Rom spline interpolation ───────────────────────────
+
+function catmullRom(
+  p0: [number, number],
+  p1: [number, number],
+  p2: [number, number],
+  p3: [number, number],
+  t: number
+): [number, number] {
+  const t2 = t * t;
+  const t3 = t2 * t;
+
+  const x = 0.5 * (
+    (2 * p1[0]) +
+    (-p0[0] + p2[0]) * t +
+    (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+    (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
+  );
+
+  const y = 0.5 * (
+    (2 * p1[1]) +
+    (-p0[1] + p2[1]) * t +
+    (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+    (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
+  );
+
+  return [x, y];
+}
+
+/**
+ * Interpolate smooth curve through key points using Catmull-Rom splines.
+ * numInserted = how many intermediate points to add per segment (2-4).
+ */
+function catmullRomSmooth(
+  points: [number, number][],
+  numInserted: number
+): [number, number][] {
+  if (points.length < 3 || numInserted < 1) return points;
+
+  const result: [number, number][] = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+
+    // Always include the original point
+    result.push(p1);
+
+    // Insert intermediate curve points
+    for (let j = 1; j <= numInserted; j++) {
+      const t = j / (numInserted + 1);
+      result.push(catmullRom(p0, p1, p2, p3, t));
+    }
+  }
+
+  // Include the last point
+  result.push(points[points.length - 1]);
+  return result;
 }
 
 // ─── Cap points by even sampling ────────────────────────────────
@@ -143,33 +202,52 @@ function capPoints(
 // ─── Main smoothing function ─────────────────────────────────────
 
 /**
- * Simplify a contour line. Higher factor = more aggressive simplification = fewer points.
+ * Smooth and simplify a contour line.
  *
- * factor 0.0 → minimal simplification (just remove exact duplicates + tiny jitter)
- * factor 0.5 → moderate simplification
- * factor 1.0 → aggressive simplification (fewest points that preserve shape)
+ * factor 0.0 → minimal: light decimation, no curve interpolation (raw-ish)
+ * factor 0.5 → moderate: medium decimation + smooth curves
+ * factor 1.0 → maximum: aggressive decimation + very smooth curves, fewest points
+ *
+ * Always outputs fewer points than input.
  */
 export function smoothContourLine(
   points: [number, number][],
   factor: number
 ): [number, number][] {
-  if (points.length <= 2) return points;
+  if (points.length <= 3) return points;
 
-  // Always do a baseline simplification to remove DEM grid staircase artifacts
-  // even at factor=0. The raw grid-traced contours have redundant collinear points.
   const extent = lineExtent(points);
-  if (extent === 0) return [points[0]]; // degenerate line
+  if (extent === 0) return [points[0]];
 
-  // Tolerance as fraction of the line's extent:
-  //   factor=0 → 0.05% of extent (removes grid artifacts only)
-  //   factor=0.5 → 0.5% of extent (moderate simplification)
-  //   factor=1 → 2% of extent (aggressive simplification)
-  const toleranceFraction = 0.0005 + factor * factor * 0.02;
-  const tolerance = extent * toleranceFraction;
+  const inputCount = points.length;
 
-  let result = simplifyLine(points, tolerance);
+  // ── Step 1: Decimate raw staircase ──
+  // At factor=0: remove only exact grid artifacts (very tight tolerance)
+  // At factor=1: aggressive — keep only key shape-defining points
+  const decimTolerance = extent * (0.001 + factor * factor * 0.03);
+  let result = simplifyLine(points, decimTolerance);
 
-  // Hard cap
+  // ── Step 2: Catmull-Rom curve interpolation ──
+  // Only apply if factor > 0 and we have enough key points
+  if (factor > 0 && result.length >= 3) {
+    // More key points = more interpolation points needed for smooth curves
+    // 2 intermediate points at low factor, up to 4 at high factor
+    const numInserted = Math.max(2, Math.min(4, Math.round(2 + factor * 2)));
+    result = catmullRomSmooth(result, numInserted);
+
+    // ── Step 3: Final decimation to clean up redundant interpolated points ──
+    // The Catmull-Rom adds points, but many will be near-collinear on
+    // already-smooth segments. This pass removes those while keeping the curves.
+    const postTolerance = extent * (0.0002 + factor * 0.003);
+    result = simplifyLine(result, postTolerance);
+  }
+
+  // ── Step 4: Ensure we never output MORE points than we started with ──
+  if (result.length > inputCount) {
+    result = capPoints(result, inputCount);
+  }
+
+  // ── Step 5: Hard cap ──
   result = capPoints(result, MAX_POINTS_PER_LINE);
 
   return result;
