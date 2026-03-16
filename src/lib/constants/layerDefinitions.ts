@@ -1,0 +1,58 @@
+import type { LayerDefinition } from '@/types/layers';
+
+export const LAYER_DEFINITIONS: LayerDefinition[] = [
+  {
+    name: 'contours',
+    label: 'Contour Lines',
+    description: 'Topographic contour lines from DEM elevation data',
+    source: 'Copernicus GLO-30 / USGS 3DEP',
+    dxfLayers: ['TOPO-CONTOUR-MAJOR', 'TOPO-CONTOUR-MINOR', 'TOPO-CONTOUR-LABEL'],
+    color: '#8B4513',
+    icon: '⊿',
+  },
+  {
+    name: 'buildings',
+    label: 'Building Footprints',
+    description: 'Building outlines from OpenStreetMap',
+    source: 'OpenStreetMap Overpass API',
+    dxfLayers: ['SITE-BLDG'],
+    color: '#404040',
+    icon: '⬜',
+  },
+  {
+    name: 'roads',
+    label: 'Roads & Streets',
+    description: 'Road network with hierarchy classification',
+    source: 'OpenStreetMap Overpass API',
+    dxfLayers: ['SITE-ROADS-HWY', 'SITE-ROADS-LOCAL'],
+    color: '#666666',
+    icon: '═',
+  },
+  {
+    name: 'water',
+    label: 'Water Bodies',
+    description: 'Rivers, lakes, coastlines, and wetlands',
+    source: 'OpenStreetMap Overpass API',
+    dxfLayers: ['SITE-WATER'],
+    color: '#4169E1',
+    icon: '~',
+  },
+  {
+    name: 'landuse',
+    label: 'Land Use & Parks',
+    description: 'Parks, forests, agriculture, and zoning boundaries',
+    source: 'OpenStreetMap Overpass API',
+    dxfLayers: ['SITE-LANDUSE'],
+    color: '#228B22',
+    icon: '▧',
+  },
+  {
+    name: 'infrastructure',
+    label: 'Infrastructure',
+    description: 'Power lines, substations, telecom towers, pipelines',
+    source: 'OpenStreetMap Overpass API',
+    dxfLayers: ['SITE-INFRA-POWER', 'SITE-INFRA-TELECOM'],
+    color: '#DC143C',
+    icon: '⚡',
+  },
+];

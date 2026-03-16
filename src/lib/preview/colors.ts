@@ -1,0 +1,16 @@
+export const ARCH_COLORS = {
+  contourMajor: '#8B4513',
+  contourMinor: '#D2B48C',
+  contourLabel: '#8B4513',
+  building: '#404040',
+  road: '#333333',
+  roadLocal: '#666666',
+  water: '#4169E1',
+  waterFill: '#B0C4DE',
+  landuse: '#228B22',
+  landuseFill: '#228B2220',
+  infrastructure: '#DC143C',
+  sheetBorder: '#000000',
+  background: '#FFFFFF',
+  text: '#333333',
+} as const;

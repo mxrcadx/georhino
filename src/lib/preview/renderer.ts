@@ -1,0 +1,324 @@
+import type { BoundingBox } from '@/types/geo';
+import type { FeatureCollection } from 'geojson';
+import type { LayerName } from '@/types/layers';
+import { ARCH_COLORS } from './colors';
+import { smoothFeatureCollection } from '@/lib/contour/smoother';
+
+interface RenderOptions {
+  bbox: BoundingBox;
+  sheetWidthInches: number;
+  sheetHeightInches: number;
+  scale: number; // scale denominator in inches (e.g., 24000 means 1"=2000')
+  enabledLayers: Record<LayerName, boolean>;
+  contourLines: FeatureCollection | null;
+  osmBuildings: FeatureCollection | null;
+  osmRoads: FeatureCollection | null;
+  osmWater: FeatureCollection | null;
+  osmLanduse: FeatureCollection | null;
+  osmInfra: FeatureCollection | null;
+  smoothing: number;
+}
+
+/**
+ * Convert lat/lng to feet relative to bbox center using equirectangular projection.
+ */
+function lngLatToFeet(
+  lng: number,
+  lat: number,
+  centerLng: number,
+  centerLat: number
+): [number, number] {
+  const DEG_TO_RAD = Math.PI / 180;
+  const EARTH_RADIUS_FT = 20_902_231;
+
+  const dLng = (lng - centerLng) * DEG_TO_RAD;
+  const dLat = (lat - centerLat) * DEG_TO_RAD;
+
+  const xFeet = EARTH_RADIUS_FT * dLng * Math.cos(centerLat * DEG_TO_RAD);
+  const yFeet = EARTH_RADIUS_FT * dLat;
+
+  return [xFeet, yFeet];
+}
+
+/**
+ * Convert real-world feet to SVG pixels on the sheet.
+ * Scale: 1 inch on paper = (scale / 12) feet in real world.
+ */
+function feetToSvg(
+  xFeet: number,
+  yFeet: number,
+  scale: number,
+  svgCenterX: number,
+  svgCenterY: number,
+  ppi: number
+): [number, number] {
+  const feetPerInch = scale / 12;
+  const xInches = xFeet / feetPerInch;
+  const yInches = yFeet / feetPerInch;
+
+  // SVG: X increases right, Y increases DOWN (flip Y)
+  const svgX = svgCenterX + xInches * ppi;
+  const svgY = svgCenterY - yInches * ppi;
+
+  return [svgX, svgY];
+}
+
+function coordsToPath(
+  coords: number[][],
+  centerLng: number,
+  centerLat: number,
+  scale: number,
+  svgCenterX: number,
+  svgCenterY: number,
+  ppi: number,
+  close = false
+): string {
+  if (!coords || coords.length === 0) return '';
+  const points: string[] = [];
+  for (const [lng, lat] of coords) {
+    const [xFt, yFt] = lngLatToFeet(lng, lat, centerLng, centerLat);
+    const [svgX, svgY] = feetToSvg(xFt, yFt, scale, svgCenterX, svgCenterY, ppi);
+    points.push(`${svgX.toFixed(1)},${svgY.toFixed(1)}`);
+  }
+  return `M ${points.join(' L ')}${close ? ' Z' : ''}`;
+}
+
+function renderFeatures(
+  fc: FeatureCollection | null,
+  centerLng: number,
+  centerLat: number,
+  scale: number,
+  svgCenterX: number,
+  svgCenterY: number,
+  ppi: number,
+  stroke: string,
+  strokeWidth: number,
+  fill = 'none',
+  close = false
+): string {
+  if (!fc) return '';
+  let svg = '';
+  for (const feature of fc.features) {
+    const geom = feature.geometry;
+    if (geom.type === 'LineString') {
+      const d = coordsToPath(geom.coordinates, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, close);
+      if (d) svg += `<path d="${d}" stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}" />\n`;
+    } else if (geom.type === 'Polygon') {
+      for (const ring of geom.coordinates) {
+        const d = coordsToPath(ring, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, true);
+        if (d) svg += `<path d="${d}" stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}" />\n`;
+      }
+    } else if (geom.type === 'Point') {
+      const [xFt, yFt] = lngLatToFeet(geom.coordinates[0], geom.coordinates[1], centerLng, centerLat);
+      const [x, y] = feetToSvg(xFt, yFt, scale, svgCenterX, svgCenterY, ppi);
+      svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="${stroke}" />\n`;
+    }
+  }
+  return svg;
+}
+
+function niceRoundNumber(value: number): number {
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / magnitude;
+  if (normalized <= 1) return magnitude;
+  if (normalized <= 2) return 2 * magnitude;
+  if (normalized <= 5) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+export function renderPreviewSvg(options: RenderOptions): string {
+  const { bbox, sheetWidthInches, sheetHeightInches, scale, enabledLayers } = options;
+
+  // SVG dimensions — 10 pixels per inch for nice rendering
+  const ppi = 10;
+  const svgW = sheetWidthInches * ppi;
+  const svgH = sheetHeightInches * ppi;
+  const margin = 15; // ~1.5" border in SVG pixels
+
+  // Center of the sheet in SVG coords
+  const svgCenterX = svgW / 2;
+  const svgCenterY = svgH / 2;
+
+  // Center of the bounding box in geographic coords
+  const centerLng = (bbox.west + bbox.east) / 2;
+  const centerLat = (bbox.south + bbox.north) / 2;
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" height="100%">`;
+
+  // Clip to sheet border so features don't bleed outside
+  svg += `<defs><clipPath id="sheet-clip"><rect x="${margin}" y="${margin}" width="${svgW - margin * 2}" height="${svgH - margin * 2}" /></clipPath></defs>`;
+
+  // Background
+  svg += `<rect width="${svgW}" height="${svgH}" fill="${ARCH_COLORS.background}" />`;
+
+  // Sheet border
+  svg += `<rect x="${margin}" y="${margin}" width="${svgW - margin * 2}" height="${svgH - margin * 2}" fill="none" stroke="${ARCH_COLORS.sheetBorder}" stroke-width="0.5" />`;
+
+  // Start clipped group
+  svg += `<g clip-path="url(#sheet-clip)">`;
+
+  // Land use (background)
+  if (enabledLayers.landuse && options.osmLanduse) {
+    svg += renderFeatures(options.osmLanduse, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.landuse, 0.3, ARCH_COLORS.landuseFill, true);
+  }
+
+  // Water — use proper SVG opacity instead of hex alpha
+  if (enabledLayers.water && options.osmWater) {
+    svg += `<g opacity="0.25">`;
+    svg += renderFeatures(options.osmWater, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.water, 0.5, ARCH_COLORS.waterFill, true);
+    svg += `</g>`;
+  }
+
+  // Contours — apply smoothing if set
+  if (enabledLayers.contours && options.contourLines) {
+    let contours = options.contourLines;
+    if (options.smoothing > 0) {
+      contours = smoothFeatureCollection(contours, options.smoothing);
+    }
+    const minorLines: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: contours.features.filter((f) => !f.properties?.isMajor),
+    };
+    const majorLines: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: contours.features.filter((f) => f.properties?.isMajor),
+    };
+    svg += renderFeatures(minorLines, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.contourMinor, 0.3);
+    svg += renderFeatures(majorLines, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.contourMajor, 0.7);
+  }
+
+  // Roads
+  if (enabledLayers.roads && options.osmRoads) {
+    const highways: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: options.osmRoads.features.filter((f) => f.properties?.roadClass === 'highway'),
+    };
+    const locals: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: options.osmRoads.features.filter((f) => f.properties?.roadClass !== 'highway'),
+    };
+    svg += renderFeatures(locals, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.roadLocal, 0.3);
+    svg += renderFeatures(highways, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.road, 0.6);
+  }
+
+  // Buildings
+  if (enabledLayers.buildings && options.osmBuildings) {
+    svg += `<g opacity="0.7">`;
+    svg += renderFeatures(options.osmBuildings, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.building, 0.4, '#E0E0E0', true);
+    svg += `</g>`;
+  }
+
+  // Infrastructure
+  if (enabledLayers.infrastructure && options.osmInfra) {
+    svg += renderFeatures(options.osmInfra, centerLng, centerLat, scale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.infrastructure, 0.4);
+  }
+
+  // End clipped group
+  svg += `</g>`;
+
+  // North arrow (top-right corner inside border)
+  const naX = svgW - margin - 15;
+  const naY = margin + 25;
+  svg += `<g transform="translate(${naX},${naY})">`;
+  svg += `<line x1="0" y1="10" x2="0" y2="-10" stroke="${ARCH_COLORS.text}" stroke-width="0.8" />`;
+  svg += `<polygon points="-3,-5 0,-12 3,-5" fill="${ARCH_COLORS.text}" />`;
+  svg += `<text x="0" y="18" text-anchor="middle" font-size="5" fill="${ARCH_COLORS.text}" font-family="Arial">N</text>`;
+  svg += `</g>`;
+
+  // Scale bar (bottom-left inside border)
+  const sbX = margin + 10;
+  const sbY = svgH - margin - 10;
+  const feetPerInch = scale / 12;
+  const barFeet = niceRoundNumber(feetPerInch * 2);
+  const barInches = barFeet / feetPerInch;
+  const barPx = barInches * ppi;
+  svg += `<g transform="translate(${sbX},${sbY})">`;
+  svg += `<line x1="0" y1="0" x2="${barPx.toFixed(1)}" y2="0" stroke="${ARCH_COLORS.text}" stroke-width="0.8" />`;
+  svg += `<line x1="0" y1="-3" x2="0" y2="3" stroke="${ARCH_COLORS.text}" stroke-width="0.8" />`;
+  svg += `<line x1="${barPx.toFixed(1)}" y1="-3" x2="${barPx.toFixed(1)}" y2="3" stroke="${ARCH_COLORS.text}" stroke-width="0.8" />`;
+  svg += `<text x="${(barPx / 2).toFixed(1)}" y="-5" text-anchor="middle" font-size="4" fill="${ARCH_COLORS.text}" font-family="Arial">${barFeet.toLocaleString()}'</text>`;
+  svg += `</g>`;
+
+  svg += '</svg>';
+  return svg;
+}
+
+/**
+ * Render a small, fast sample preview showing only a subset of contour lines.
+ * Used for live feedback while adjusting the smoothing slider.
+ * Renders ~20 contour features in a small viewport — much faster than the full sheet.
+ * Auto-fits the contours to fill the viewport regardless of map scale.
+ */
+export function renderSampleSvg(options: {
+  bbox: BoundingBox;
+  contourLines: FeatureCollection | null;
+  smoothing: number;
+  scale: number;
+}): string {
+  const { bbox, contourLines, smoothing } = options;
+  if (!contourLines || contourLines.features.length === 0) return '';
+
+  // Sample: take every Nth line to get ~20 features
+  const totalFeatures = contourLines.features.length;
+  const step = Math.max(1, Math.floor(totalFeatures / 20));
+  const sampledFeatures = contourLines.features.filter((_, i) => i % step === 0);
+
+  let sampled: FeatureCollection = {
+    type: 'FeatureCollection',
+    features: sampledFeatures,
+  };
+
+  // Apply smoothing to the small sample
+  if (smoothing > 0) {
+    sampled = smoothFeatureCollection(sampled, smoothing);
+  }
+
+  // Small viewport — 220x220 SVG
+  const svgSize = 220;
+  const margin = 10;
+  const svgCenterX = svgSize / 2;
+  const svgCenterY = svgSize / 2;
+
+  const centerLng = (bbox.west + bbox.east) / 2;
+  const centerLat = (bbox.south + bbox.north) / 2;
+
+  // Calculate the geographic extent of the bbox in feet so we can auto-fit
+  const DEG_TO_RAD = Math.PI / 180;
+  const EARTH_RADIUS_FT = 20_902_231;
+  const bboxWidthFt = EARTH_RADIUS_FT * (bbox.east - bbox.west) * DEG_TO_RAD * Math.cos(centerLat * DEG_TO_RAD);
+  const bboxHeightFt = EARTH_RADIUS_FT * (bbox.north - bbox.south) * DEG_TO_RAD;
+  const maxExtentFt = Math.max(bboxWidthFt, bboxHeightFt);
+
+  // Compute a custom scale that fits the full bbox into the sample viewport
+  // Available SVG pixels = svgSize - 2*margin; at ppi=10, that's (svgSize-2*margin)/10 inches
+  const ppi = 10;
+  const availableInches = (svgSize - 2 * margin) / ppi;
+  // scale / 12 = feetPerInch → scale = feetPerInch * 12
+  const feetPerInch = maxExtentFt / availableInches;
+  const fitScale = feetPerInch * 12;
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgSize} ${svgSize}" width="100%" height="100%">`;
+  svg += `<rect width="${svgSize}" height="${svgSize}" fill="${ARCH_COLORS.background}" />`;
+  svg += `<rect x="1" y="1" width="${svgSize - 2}" height="${svgSize - 2}" fill="none" stroke="${ARCH_COLORS.sheetBorder}" stroke-width="0.5" />`;
+
+  // Clip to viewport
+  svg += `<defs><clipPath id="sample-clip"><rect x="2" y="2" width="${svgSize - 4}" height="${svgSize - 4}" /></clipPath></defs>`;
+  svg += `<g clip-path="url(#sample-clip)">`;
+
+  // Render sampled contours using the auto-fit scale
+  const minorLines: FeatureCollection = {
+    type: 'FeatureCollection',
+    features: sampled.features.filter((f) => !f.properties?.isMajor),
+  };
+  const majorLines: FeatureCollection = {
+    type: 'FeatureCollection',
+    features: sampled.features.filter((f) => f.properties?.isMajor),
+  };
+
+  svg += renderFeatures(minorLines, centerLng, centerLat, fitScale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.contourMinor, 0.4);
+  svg += renderFeatures(majorLines, centerLng, centerLat, fitScale, svgCenterX, svgCenterY, ppi, ARCH_COLORS.contourMajor, 0.8);
+
+  svg += `</g>`;
+  svg += '</svg>';
+  return svg;
+}

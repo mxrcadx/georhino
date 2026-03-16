@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --version)",
+      "Bash(npm --version)",
+      "Bash(npx --version)",
+      "WebSearch",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-turbopack)",
+      "Bash(where node)",
+      "Bash(where npm)",
+      "Bash(where npx)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs:/c/Users/mxrca/AppData/Roaming/npm\")",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Read(//c/Users/mxrca/**)",
+      "Bash(export PATH=\"/c/Users/mxrca/node-v22.14.0-win-x64:$PATH\")",
+      "Bash(npm install)",
+      "Bash(npx next build)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(C:Usersmxrcanode-v22.14.0-win-x64npx.cmd next build)",
+      "Bash(\"C:/Users/mxrca/node-v22.14.0-win-x64/npx.cmd\" next build)",
+      "Bash(PATH=\"C:/Users/mxrca/node-v22.14.0-win-x64:$PATH\" npx next build)",
+      "Bash(\"C:/Users/mxrca/node-v22.14.0-win-x64/node.exe\" node_modules/next/dist/bin/next build)",
+      "Bash(export PATH=\"C:/Users/mxrca/node-v22.14.0-win-x64:$PATH\")",
+      "Bash(set PATH=C:Usersmxrcanode-v22.14.0-win-x64)",
+      "Bash(%PATH%)",
+      "Bash(export PATH=\"/mnt/c/Users/mxrca/node-v22.14.0-win-x64:$PATH\")",
+      "Read(//mnt/c/Users/mxrca/OneDrive/Desktop/**)",
+      "Bash(node node_modules/next/dist/bin/next build)",
+      "Bash(\"C:\\\\Users\\\\mxrca\\\\node-v22.14.0-win-x64\\\\node.exe\" node_modules/next/dist/bin/next build)"
+    ]
+  }
+}
