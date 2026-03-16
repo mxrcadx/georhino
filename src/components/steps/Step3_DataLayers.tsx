@@ -88,16 +88,17 @@ export function Step3DataLayers() {
         {bbox && (() => {
           const warning = getAreaWarning(bbox);
           if (!warning) return null;
-          const isTooLarge = warning.includes('exceeds') || warning.includes('maximum');
+          const isTooLarge = warning.includes('exceeds') || warning.includes('1,000,000');
+          const isCesium = warning.includes('Cesium');
           return (
-            <div className={`rounded-lg border p-4 ${isTooLarge ? 'bg-red-500/5 border-red-500/30' : 'bg-yellow-500/5 border-yellow-500/30'}`}>
+            <div className={`rounded-lg border p-4 ${isTooLarge ? 'bg-red-500/5 border-red-500/30' : isCesium ? 'bg-blue-500/5 border-blue-500/30' : 'bg-yellow-500/5 border-yellow-500/30'}`}>
               <div className="flex items-start gap-3">
-                <span className="text-lg">{isTooLarge ? '⚠️' : '⏳'}</span>
+                <span className="text-lg">{isTooLarge ? '⚠️' : isCesium ? '🌍' : '⏳'}</span>
                 <div>
-                  <h3 className={`text-sm font-medium ${isTooLarge ? 'text-red-400' : 'text-yellow-400'}`}>
-                    {isTooLarge ? 'Area Too Large' : 'Large Area Warning'}
+                  <h3 className={`text-sm font-medium ${isTooLarge ? 'text-red-400' : isCesium ? 'text-blue-400' : 'text-yellow-400'}`}>
+                    {isTooLarge ? 'Area Too Large' : isCesium ? 'Cesium World Terrain' : 'Large Area Notice'}
                   </h3>
-                  <p className={`text-xs mt-1 ${isTooLarge ? 'text-red-400/80' : 'text-yellow-400/80'}`}>
+                  <p className={`text-xs mt-1 ${isTooLarge ? 'text-red-400/80' : isCesium ? 'text-blue-400/80' : 'text-yellow-400/80'}`}>
                     {warning}
                   </p>
                 </div>

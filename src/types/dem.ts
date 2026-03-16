@@ -10,7 +10,7 @@ export interface ElevationGrid {
   source: DEMSource;
 }
 
-export type DEMSource = 'COP30' | 'COP90' | 'SRTMGL1' | 'SRTMGL3' | 'USGS10m' | 'USGS30m';
+export type DEMSource = 'COP30' | 'COP90' | 'SRTMGL1' | 'SRTMGL3' | 'USGS10m' | 'USGS30m' | 'CesiumWorldTerrain';
 
 export interface DEMMetadata {
   source: DEMSource;
