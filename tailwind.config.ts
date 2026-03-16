@@ -10,14 +10,14 @@ const config: Config = {
     extend: {
       colors: {
         geo: {
-          bg: '#0a0a0f',
-          surface: '#12121a',
-          border: '#1e1e2e',
-          'border-hover': '#2a2a3e',
+          bg: '#000000',
+          surface: '#0a0a0a',
+          border: '#1a1a1a',
+          'border-hover': '#2a2a2a',
           text: '#e4e4e7',
           'text-muted': '#71717a',
-          accent: '#3b82f6',
-          'accent-hover': '#2563eb',
+          accent: '#22c55e',
+          'accent-hover': '#16a34a',
           success: '#22c55e',
           warning: '#f59e0b',
           error: '#ef4444',
@@ -31,6 +31,7 @@ const config: Config = {
         },
       },
       fontFamily: {
+        sans: ['PS Times Trial', 'Georgia', 'Times New Roman', 'serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
     },

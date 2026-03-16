@@ -2,10 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'PS Times Trial';
+  src: url('/fonts/PSTimesTrial-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --geo-bg: #0a0a0f;
-  --geo-surface: #12121a;
-  --geo-border: #1e1e2e;
+  --geo-bg: #000000;
+  --geo-surface: #0a0a0a;
+  --geo-border: #1a1a1a;
+  --geo-accent: #22c55e;
 }
 
 * {
@@ -18,7 +27,7 @@ html, body {
   height: 100%;
   background-color: var(--geo-bg);
   color: #e4e4e7;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'PS Times Trial', Georgia, 'Times New Roman', serif;
 }
 
 #__next {
@@ -27,8 +36,8 @@ html, body {
 
 /* Mapbox overrides for dark theme */
 .mapboxgl-ctrl-group {
-  background: #12121a !important;
-  border-color: #1e1e2e !important;
+  background: #0a0a0a !important;
+  border-color: #1a1a1a !important;
 }
 
 .mapboxgl-ctrl-group button {
@@ -36,7 +45,7 @@ html, body {
 }
 
 .mapboxgl-ctrl-attrib {
-  background: rgba(10, 10, 15, 0.7) !important;
+  background: rgba(0, 0, 0, 0.7) !important;
   color: #71717a !important;
 }
 
@@ -51,16 +60,16 @@ html, body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0a0f;
+  background: #000000;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2a3e;
+  background: #2a2a2a;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a4e;
+  background: #3a3a3a;
 }
 
 /* Slider styling */
@@ -74,7 +83,7 @@ input[type="range"] {
 
 input[type="range"]::-webkit-slider-track {
   height: 4px;
-  background: #1e1e2e;
+  background: #1a1a1a;
   border-radius: 2px;
 }
 
@@ -84,13 +93,13 @@ input[type="range"]::-webkit-slider-thumb {
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #22c55e;
   margin-top: -6px;
 }
 
 input[type="range"]::-moz-range-track {
   height: 4px;
-  background: #1e1e2e;
+  background: #1a1a1a;
   border-radius: 2px;
 }
 
@@ -98,6 +107,6 @@ input[type="range"]::-moz-range-thumb {
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #22c55e;
   border: none;
 }
