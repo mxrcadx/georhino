@@ -82,3 +82,32 @@ export function projectFeatureCollection(
     })),
   };
 }
+
+// ─── Async batched version (for export — prevents page freeze) ───
+
+const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));
+
+export async function projectFeatureCollectionAsync(
+  fc: FeatureCollection | null,
+  projector: Projector,
+  onProgress?: (pct: number) => void
+): Promise<FeatureCollection | null> {
+  if (!fc) return null;
+
+  const BATCH = 30; // yield every 30 features
+  const features: Feature[] = [];
+
+  for (let i = 0; i < fc.features.length; i++) {
+    features.push({
+      ...fc.features[i],
+      geometry: projectGeometry(fc.features[i].geometry, projector),
+    });
+
+    if (i % BATCH === 0 && i > 0) {
+      onProgress?.(i / fc.features.length);
+      await yieldToMain();
+    }
+  }
+
+  return { type: 'FeatureCollection', features };
+}

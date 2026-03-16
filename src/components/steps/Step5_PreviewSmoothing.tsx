@@ -150,20 +150,14 @@ export function Step5PreviewSmoothing() {
             value={smoothing * 100}
             onChange={(v) => setSmoothing(v / 100)}
             min={0}
-            max={200}
+            max={100}
             step={5}
             valueLabel={`${Math.round(smoothing * 100)}%`}
           />
           <div className="flex justify-between text-[10px] text-geo-text-muted -mt-2">
             <span>Raw</span>
-            <span>100%</span>
-            <span>Ultra</span>
+            <span>Smooth</span>
           </div>
-          {smoothing > 1.0 && (
-            <p className="text-[10px] text-yellow-400/70">
-              Beyond 100% trades positional accuracy for smoother curves.
-            </p>
-          )}
 
           {/* Live sample preview */}
           <div>

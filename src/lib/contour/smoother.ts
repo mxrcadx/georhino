@@ -1,17 +1,18 @@
 /**
- * Multi-stage contour smoothing pipeline:
+ * Contour smoothing pipeline — 0% (raw) to 100% (fully smooth)
  *
- * Stage 1 (factor 0–1.0, slider 0–100%):
+ * Pre-processing:
+ *   Point decimation strips redundant collinear stair-step points from
+ *   DEM grid-aligned contours, reducing point count before smoothing.
+ *
+ * 0–60% (factor 0–0.6):
  *   Catmull-Rom spline interpolation — inserts curved points between
- *   original vertices. Passes through all original points, so the shape
- *   is preserved but the line segments become curved.
+ *   original vertices (1–12 interpolation points). Passes through all
+ *   original points, so shape is preserved but lines become curved.
  *
- * Stage 2 (factor 1.0–2.0, slider 100–200%):
- *   Chaikin corner-cutting — iteratively replaces each segment with two
- *   shorter segments that "cut the corner." This does NOT pass through
- *   the original points, producing genuinely smooth curves at the cost
- *   of some positional fidelity. More iterations = smoother but less
- *   true to the original DEM grid.
+ * 60–100% (factor 0.6–1.0):
+ *   Catmull-Rom at max + Chaikin corner-cutting (1–3 iterations).
+ *   Produces fully smooth, flowing curves like professional topo maps.
  */
 
 // ─── Catmull-Rom spline ───────────────────────────────────────────
@@ -156,21 +157,20 @@ export function smoothContourLine(
 ): [number, number][] {
   if (factor <= 0 || points.length < 3) return points;
 
-  let result = points;
+  // Pre-process: strip stair-step grid artifacts from DEM data.
+  // Removes collinear points from grid-aligned patterns so the smoother
+  // has cleaner, fewer points to process.
+  let result = decimatePoints(points, 0.000001);
 
-  if (factor <= 1.0) {
-    // Stage 1: Catmull-Rom only (0–100%)
-    // Scale interpolation points from 1 to 12
-    const numInserted = Math.max(1, Math.round(factor * 12));
+  if (factor <= 0.6) {
+    // 0–60%: Catmull-Rom interpolation only (1–12 points per segment)
+    const numInserted = Math.max(1, Math.round((factor / 0.6) * 12));
     result = catmullRomSmooth(result, numInserted);
   } else {
-    // Stage 2: Beyond 100% — Catmull-Rom at max, then Chaikin rounding
-    // First apply full Catmull-Rom (same as 100%) for smooth base
+    // 60–100%: Full Catmull-Rom + Chaikin corner-cutting for max smoothness
     result = catmullRomSmooth(result, 12);
-
-    // Then Chaikin corner-cutting for extra rounding
-    // factor 1.0→2.0 maps to 1→3 Chaikin iterations (capped to prevent bloat)
-    const chaikinIter = Math.max(1, Math.round((factor - 1.0) * 3));
+    // factor 0.6→1.0 maps to 1→3 Chaikin iterations
+    const chaikinIter = Math.max(1, Math.round(((factor - 0.6) / 0.4) * 3));
     result = chaikinSmooth(result, chaikinIter);
   }
 
@@ -202,4 +202,45 @@ export function smoothFeatureCollection(
       };
     }),
   };
+}
+
+// ─── Async batched version (for export — prevents page freeze) ───
+
+const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));
+
+export async function smoothFeatureCollectionAsync(
+  fc: import('geojson').FeatureCollection,
+  factor: number,
+  onProgress?: (pct: number) => void
+): Promise<import('geojson').FeatureCollection> {
+  if (factor <= 0) return fc;
+
+  const BATCH = 20; // yield every 20 features
+  const features: import('geojson').Feature[] = [];
+
+  for (let i = 0; i < fc.features.length; i++) {
+    const feature = fc.features[i];
+    if (feature.geometry.type !== 'LineString') {
+      features.push(feature);
+      continue;
+    }
+
+    const coords = feature.geometry.coordinates as [number, number][];
+    const smoothed = smoothContourLine(coords, factor);
+
+    features.push({
+      ...feature,
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: smoothed,
+      },
+    });
+
+    if (i % BATCH === 0 && i > 0) {
+      onProgress?.(i / fc.features.length);
+      await yieldToMain();
+    }
+  }
+
+  return { type: 'FeatureCollection', features };
 }

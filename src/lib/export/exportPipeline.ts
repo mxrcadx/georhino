@@ -1,7 +1,7 @@
 import type { AppStore } from '@/store';
 import type { FeatureCollection } from 'geojson';
-import { createProjector, projectFeatureCollection } from '@/lib/geo/projection';
-import { smoothFeatureCollection } from '@/lib/contour/smoother';
+import { createProjector, projectFeatureCollectionAsync } from '@/lib/geo/projection';
+import { smoothFeatureCollectionAsync } from '@/lib/contour/smoother';
 import { renderPreviewSvg } from '@/lib/preview/renderer';
 import { DxfWriter } from './dxf/DxfWriter';
 
@@ -28,29 +28,30 @@ async function generateDxf(
 ): Promise<Blob> {
   const writer = new DxfWriter();
 
-  // ── Stage 1: Smooth contours (heaviest CPU work) ──
-  setProgress(15);
+  // ── Stage 1: Smooth contours (heaviest CPU work — yields every 20 features) ──
+  setProgress(5);
   let contours = state.contourLines;
   if (contours && state.smoothing > 0) {
-    contours = smoothFeatureCollection(contours, state.smoothing);
+    contours = await smoothFeatureCollectionAsync(contours, state.smoothing, (pct) => {
+      setProgress(5 + Math.round(pct * 15)); // 5–20%
+    });
   }
-  await yieldToMain();
+  setProgress(20);
 
-  // ── Stage 2: Project each data layer (proj4 per coordinate) ──
-  setProgress(25);
-  const projectedContours = projectFeatureCollection(contours, projector);
-  await yieldToMain();
-
+  // ── Stage 2: Project each data layer (yields every 30 features) ──
+  const projectedContours = await projectFeatureCollectionAsync(contours, projector, (pct) => {
+    setProgress(20 + Math.round(pct * 10)); // 20–30%
+  });
   setProgress(30);
-  const projectedBuildings = projectFeatureCollection(state.osmBuildings, projector);
-  const projectedRoads = projectFeatureCollection(state.osmRoads, projector);
-  await yieldToMain();
 
-  setProgress(35);
-  const projectedWater = projectFeatureCollection(state.osmWater, projector);
-  const projectedLanduse = projectFeatureCollection(state.osmLanduse, projector);
-  const projectedInfra = projectFeatureCollection(state.osmInfra, projector);
-  await yieldToMain();
+  const projectedBuildings = await projectFeatureCollectionAsync(state.osmBuildings, projector);
+  const projectedRoads = await projectFeatureCollectionAsync(state.osmRoads, projector);
+  setProgress(33);
+
+  const projectedWater = await projectFeatureCollectionAsync(state.osmWater, projector);
+  const projectedLanduse = await projectFeatureCollectionAsync(state.osmLanduse, projector);
+  const projectedInfra = await projectFeatureCollectionAsync(state.osmInfra, projector);
+  setProgress(36);
 
   // ── Stage 3: Build DXF entities in batches ──
   const BATCH_SIZE = 50; // yield every 50 features
