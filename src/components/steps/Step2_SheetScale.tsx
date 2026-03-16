@@ -1,10 +1,40 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '@/store';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { SHEET_PRESETS, SCALE_PRESETS, autoCalculateScale, getScaleLabel } from '@/lib/constants/sheetSizes';
+
+function CustomScaleInput({ scale, setScaleManual }: { scale: number; setScaleManual: (v: number) => void }) {
+  const [text, setText] = useState(String(Math.round(scale / 12)));
+
+  // Sync from store → local when store changes externally (preset buttons)
+  useEffect(() => {
+    setText(String(Math.round(scale / 12)));
+  }, [scale]);
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-geo-text-muted whitespace-nowrap">Custom: 1&quot; =</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={text}
+        onChange={(e) => {
+          const raw = e.target.value.replace(/[^0-9]/g, '');
+          setText(raw);
+          const num = parseInt(raw, 10);
+          if (num > 0) {
+            setScaleManual(num * 12);
+          }
+        }}
+        className="w-28 bg-geo-bg border border-geo-border rounded-lg px-3 py-1.5 text-sm font-mono text-geo-text"
+      />
+      <span className="text-xs text-geo-text-muted">feet</span>
+    </div>
+  );
+}
 
 export function Step2SheetScale() {
   const widthFeet = useAppStore((s) => s.widthFeet);
@@ -52,6 +82,35 @@ export function Step2SheetScale() {
             Configure your print sheet dimensions and drawing scale.
           </p>
         </div>
+
+        {/* Drawing Summary — at top for quick reference */}
+        {widthFeet > 0 && (
+          <Card>
+            <h3 className="text-sm font-medium mb-3">Drawing Summary</h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-geo-text-muted text-xs">Sheet</div>
+                <div className="font-mono">{sheetWidthInches}&quot; × {sheetHeightInches}&quot;</div>
+              </div>
+              <div>
+                <div className="text-geo-text-muted text-xs">Scale</div>
+                <div className="font-mono">{scaleLabel}</div>
+              </div>
+              <div>
+                <div className="text-geo-text-muted text-xs">Drawing Size</div>
+                <div className="font-mono">
+                  {(widthFeet / (scale / 12)).toFixed(1)}&quot; × {(heightFeet / (scale / 12)).toFixed(1)}&quot;
+                </div>
+              </div>
+              <div>
+                <div className="text-geo-text-muted text-xs">Site Coverage</div>
+                <div className="font-mono">
+                  {Math.round((widthFeet / (scale / 12)) / sheetWidthInches * 100)}% of sheet
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Sheet Size */}
         <Card>
@@ -162,23 +221,8 @@ export function Step2SheetScale() {
               ))}
             </div>
 
-            {/* Custom scale input */}
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-geo-text-muted whitespace-nowrap">Custom: 1&quot; =</span>
-              <input
-                type="number"
-                value={Math.round(scale / 12)}
-                onChange={(e) => {
-                  const feetPerInch = Number(e.target.value);
-                  if (feetPerInch > 0) {
-                    setScaleManual(feetPerInch * 12);
-                  }
-                }}
-                className="w-24 bg-geo-bg border border-geo-border rounded-lg px-3 py-1.5 text-sm font-mono text-geo-text"
-                min={1}
-              />
-              <span className="text-xs text-geo-text-muted">feet</span>
-            </div>
+            {/* Custom scale input — use local string state so the user can freely edit */}
+            <CustomScaleInput scale={scale} setScaleManual={setScaleManual} />
 
             {/* Current scale display */}
             <div className="bg-geo-bg rounded-lg p-3 text-sm">
@@ -198,34 +242,7 @@ export function Step2SheetScale() {
           </div>
         </Card>
 
-        {/* Summary */}
-        {widthFeet > 0 && (
-          <Card>
-            <h3 className="text-sm font-medium mb-3">Drawing Summary</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="text-geo-text-muted text-xs">Sheet</div>
-                <div className="font-mono">{sheetWidthInches}" × {sheetHeightInches}"</div>
-              </div>
-              <div>
-                <div className="text-geo-text-muted text-xs">Scale</div>
-                <div className="font-mono">{scaleLabel}</div>
-              </div>
-              <div>
-                <div className="text-geo-text-muted text-xs">Drawing Size</div>
-                <div className="font-mono">
-                  {(widthFeet / (scale / 12)).toFixed(1)}" × {(heightFeet / (scale / 12)).toFixed(1)}"
-                </div>
-              </div>
-              <div>
-                <div className="text-geo-text-muted text-xs">Site Coverage</div>
-                <div className="font-mono">
-                  {Math.round((widthFeet / (scale / 12)) / sheetWidthInches * 100)}% of sheet
-                </div>
-              </div>
-            </div>
-          </Card>
-        )}
+        {/* Summary moved to top */}
       </div>
     </div>
   );

@@ -149,12 +149,10 @@ export function Step5PreviewSmoothing() {
         >
           {svgContent ? (
             <div
-              className="bg-white shadow-2xl"
+              className="bg-white shadow-2xl shrink-0"
               style={{
-                width: `${sheetWidthInches * 10}px`,
-                aspectRatio: `${aspectRatio}`,
-                transform: `scale(${zoom})`,
-                transformOrigin: 'center center',
+                width: `${baseSvgWidth * zoom}px`,
+                height: `${baseSvgHeight * zoom}px`,
               }}
               dangerouslySetInnerHTML={{ __html: svgContent }}
             />

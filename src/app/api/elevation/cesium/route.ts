@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
       resolution: result.resolution,
       zoomLevel: result.zoomLevel,
       tileCount: result.tileCount,
+      debug: result.debug,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

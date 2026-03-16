@@ -41,6 +41,8 @@ export interface SamplerResult {
   zoomLevel: number;
   /** Number of tiles fetched */
   tileCount: number;
+  /** Debug info */
+  debug: string;
 }
 
 /**
@@ -56,8 +58,13 @@ async function getCesiumEndpoint(token: string): Promise<CesiumEndpoint> {
     throw new Error(`Cesium ion endpoint error (${res.status}): ${text}`);
   }
   const data = await res.json();
+
+  if (!data.url || !data.accessToken) {
+    throw new Error(`Cesium ion returned invalid endpoint: ${JSON.stringify(data).slice(0, 200)}`);
+  }
+
   return {
-    url: data.url,
+    url: data.url.replace(/\/$/, ''), // strip trailing slash
     accessToken: data.accessToken,
   };
 }
@@ -70,23 +77,34 @@ async function fetchTile(
   endpoint: CesiumEndpoint,
   tile: TileCoord
 ): Promise<ReturnType<typeof decodeQuantizedMesh> | null> {
-  const url = `${endpoint.url}/${tile.z}/${tile.x}/${tile.y}.terrain?v=1.2.0`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${endpoint.accessToken}`,
-      Accept: 'application/vnd.quantized-mesh,application/octet-stream;q=0.9',
-    },
-  });
+  // Auth via query param (matching CesiumJS behavior — NOT Bearer header)
+  const url = `${endpoint.url}/${tile.z}/${tile.x}/${tile.y}.terrain?v=1.2.0&access_token=${endpoint.accessToken}`;
 
-  if (!res.ok) {
-    if (res.status === 404) return null; // No terrain data for this tile (ocean, etc.)
-    // Don't throw on individual tile failures — just return null
-    console.warn(`Cesium tile ${tile.z}/${tile.x}/${tile.y} failed: ${res.status}`);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.quantized-mesh;extensions=octvertexnormals-watermask-metadata,application/octet-stream;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
+      },
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      console.warn(`Cesium tile ${tile.z}/${tile.x}/${tile.y}: HTTP ${res.status}`);
+      return null;
+    }
+
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength < 88) {
+      console.warn(`Cesium tile ${tile.z}/${tile.x}/${tile.y}: too small (${buffer.byteLength} bytes)`);
+      return null;
+    }
+
+    return decodeQuantizedMesh(buffer);
+  } catch (err) {
+    console.warn(`Cesium tile ${tile.z}/${tile.x}/${tile.y} error:`, err);
     return null;
   }
-
-  const buffer = await res.arrayBuffer();
-  return decodeQuantizedMesh(buffer);
 }
 
 /**
@@ -124,9 +142,17 @@ export async function sampleCesiumTerrain(opts: SamplerOptions): Promise<Sampler
 
   // Get Cesium endpoint
   const endpoint = await getCesiumEndpoint(cesiumToken);
+  const debugLines: string[] = [];
+  debugLines.push(`endpoint=${endpoint.url}`);
 
   // Determine which tiles we need
   const tiles = tilesInBbox(south, west, north, east, zoom);
+  debugLines.push(`tiles=${tiles.length} z=${zoom}`);
+
+  if (tiles.length > 0) {
+    const f = tiles[0];
+    debugLines.push(`first=${f.z}/${f.x}/${f.y}`);
+  }
 
   if (tiles.length > 500) {
     throw new Error(
@@ -135,9 +161,10 @@ export async function sampleCesiumTerrain(opts: SamplerOptions): Promise<Sampler
     );
   }
 
-  // Fetch all tiles in parallel (with concurrency limit)
-  const CONCURRENCY = 8;
+  // Fetch all tiles with concurrency limit
+  const CONCURRENCY = 6;
   const tileCache = new Map<string, ReturnType<typeof decodeQuantizedMesh> | null>();
+  let fetchErrors = 0;
 
   for (let i = 0; i < tiles.length; i += CONCURRENCY) {
     const batch = tiles.slice(i, i + CONCURRENCY);
@@ -145,6 +172,7 @@ export async function sampleCesiumTerrain(opts: SamplerOptions): Promise<Sampler
       batch.map(async (tile) => {
         const key = `${tile.z}/${tile.x}/${tile.y}`;
         const mesh = await fetchTile(endpoint, tile);
+        if (!mesh) fetchErrors++;
         return { key, mesh };
       })
     );
@@ -152,6 +180,8 @@ export async function sampleCesiumTerrain(opts: SamplerOptions): Promise<Sampler
       tileCache.set(key, mesh);
     }
   }
+
+  debugLines.push(`errors=${fetchErrors}/${tiles.length}`);
 
   // Build the elevation grid by sampling each point
   const grid = new Float32Array(gridWidth * gridHeight);
@@ -200,6 +230,7 @@ export async function sampleCesiumTerrain(opts: SamplerOptions): Promise<Sampler
     resolution: targetRes,
     zoomLevel: zoom,
     tileCount: actualTiles,
+    debug: debugLines.join('; '),
   };
 }
 
