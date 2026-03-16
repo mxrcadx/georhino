@@ -6,14 +6,24 @@ import { renderPreviewSvg } from '@/lib/preview/renderer';
 import { DxfWriter } from './dxf/DxfWriter';
 
 function downloadBlob(blob: Blob, filename: string) {
+  // Create object URL
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.style.display = 'none';
   document.body.appendChild(a);
+
+  // Click to trigger download
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+
+  // IMPORTANT: Delay cleanup — revoking immediately kills the download
+  // on many browsers before it starts. 60s is safe.
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 60_000);
 }
 
 /** Yield to the browser so the page stays responsive during heavy work */
@@ -206,7 +216,23 @@ export async function runExportPipeline(state: AppStore): Promise<void> {
   const { bbox, utmZone, utmHemisphere, exportFormat } = state;
 
   if (!bbox || !utmZone || !utmHemisphere) {
-    state.setExportError('No area selected');
+    state.setExportError('No area selected. Go back to Step 1 and select an area.');
+    return;
+  }
+
+  // Check if we have any data at all
+  const hasContours = state.enabledLayers.contours && state.contourLines;
+  const hasBuildings = state.enabledLayers.buildings && state.osmBuildings;
+  const hasRoads = state.enabledLayers.roads && state.osmRoads;
+  const hasWater = state.enabledLayers.water && state.osmWater;
+  const hasLanduse = state.enabledLayers.landuse && state.osmLanduse;
+  const hasInfra = state.enabledLayers.infrastructure && state.osmInfra;
+
+  if (!hasContours && !hasBuildings && !hasRoads && !hasWater && !hasLanduse && !hasInfra) {
+    state.setExportError(
+      'No data to export. Go back to Step 3 and fetch data layers first, ' +
+      'then generate contours in Step 4.'
+    );
     return;
   }
 
@@ -226,27 +252,31 @@ export async function runExportPipeline(state: AppStore): Promise<void> {
     switch (exportFormat) {
       case 'dxf':
         blob = await generateDxf(state, projector, (p) => state.setExportProgress(p));
+        state.setExportProgress(95);
         downloadBlob(blob, `georhino-site-${timestamp}.dxf`);
         break;
 
       case 'svg':
         state.setExportProgress(40);
         blob = generateSvg(state);
-        state.setExportProgress(90);
+        state.setExportProgress(95);
         downloadBlob(blob, `georhino-site-${timestamp}.svg`);
         break;
 
       case 'pdf':
         state.setExportProgress(40);
         blob = await generatePdf(state);
-        state.setExportProgress(90);
+        state.setExportProgress(95);
         downloadBlob(blob, `georhino-site-${timestamp}.pdf`);
         break;
     }
 
     state.setExportProgress(100);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Export failed';
+    console.error('Export pipeline error:', err);
+    const message = err instanceof Error
+      ? `Export failed: ${err.message}`
+      : 'Export failed with an unknown error. Check browser console for details.';
     state.setExportError(message);
   } finally {
     state.setIsExporting(false);

@@ -138,8 +138,9 @@ export function Step7Export() {
           )}
 
           {exportError && (
-            <div className="bg-geo-error/5 border border-geo-error/20 rounded-lg p-3">
-              <p className="text-xs text-geo-error">{exportError}</p>
+            <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-red-400 mb-1">Export Error</h4>
+              <p className="text-sm text-red-400/90">{exportError}</p>
             </div>
           )}
 
